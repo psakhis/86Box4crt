@@ -8,6 +8,7 @@ This fork is a very accurate version of 86Box with additional features:
  - KMS version on Linux / Console version on Windows (no gui)
  - Switchres integrated to switch resolutions on the fly (see https://github.com/antonioginer/switchres)
  - Can work with native resolutions or super resolutions (configure it on switchres.ini)
+ - 320x200 mode 13h patched on VGA card to work with 60hz (no tearing)
    
 To exit, press mouse middle button
  
