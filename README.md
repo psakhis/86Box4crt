@@ -4,7 +4,7 @@
 https://github.com/86Box/86Box
 
 This fork is a very accurate version of 86Box with additional features:
- - Exclusive fullscreen (no windowed modes) so Low input lag
+ - Exclusive fullscreen (no windowed or borderless modes) so Low input lag
  - KMS version on Linux / Console version on Windows (no gui)
  - Switchres integrated to switch resolutions on the fly (see https://github.com/antonioginer/switchres)
 
