@@ -16,7 +16,7 @@
 #include <86box/video.h>
 #include <86box/ui.h>
 #include <86box/version.h>
-#include <86box/unix_sdl.h>
+#include <86box/winsr_sdl.h>
 
 #include <86box/switchres_wrapper.h> //psakhis
 

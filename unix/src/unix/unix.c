@@ -62,7 +62,7 @@ int             joysticks_present;
 SDL_mutex      *blitmtx;
 SDL_threadID    eventthread;
 static int      exit_event         = 0;
-static int      fullscreen_pending = 1; //psakhis
+static int      fullscreen_pending = 0;
 uint32_t        lang_id = 0x0409, lang_sys = 0x0409; // Multilangual UI variables, for now all set to LCID of en-US
 char            icon_set[256] = "";                  /* name of the iconset to be used */
 
@@ -1107,12 +1107,11 @@ main(int argc, char **argv)
     } else
         fprintf(stderr, "libedit not found, line editing will be limited.\n");
     mousemutex = SDL_CreateMutex();
+    
+    //psakhis: start on fullscreen
+    video_fullscreen = 1; 
     sdl_initho();
-
-    if (start_in_fullscreen) {
-        video_fullscreen = 1;
-        sdl_set_fs(1);
-    }
+                
     /* Fire up the machine. */
     pc_reset_hard_init();
 
@@ -1252,9 +1251,9 @@ main(int argc, char **argv)
             sdl_set_fs(0);
             video_fullscreen = 0;
         }
-        if (fullscreen_pending) {
-            video_fullscreen = 1; //psakhis	
-            sdl_set_fs(video_fullscreen);
+        if (fullscreen_pending) {            
+            sdl_set_fs(1);
+            video_fullscreen = 1;
             fullscreen_pending = 0;
         }
         if (exit_event) {
