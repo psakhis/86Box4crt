@@ -59,6 +59,7 @@
 #endif
 #include <86box/gameport.h>
 #include <86box/winsr_sdl.h> //psakhis
+#include <86box/winsr_opengl.h> //psakhis
 #include <86box/version.h>
 #include <86box/gdbstub.h>
 #ifdef MTR_ENABLED
@@ -78,15 +79,19 @@ int             hide_tool_bar;
 int             fixed_size_x = 640;
 int             fixed_size_y = 480;
 extern int      title_set;
-plat_joystick_t plat_joystick_state[MAX_PLAT_JOYSTICKS];
-joystick_t      joystick_state[MAX_JOYSTICKS];
-int             joysticks_present;
+
+/* winsr_sdl2_joystick.c */
+//plat_joystick_t plat_joystick_state[MAX_PLAT_JOYSTICKS];
+//joystick_t      joystick_state[MAX_JOYSTICKS];
+//int             joysticks_present;
+
 extern wchar_t  sdl_win_title[512];
 
 SDL_mutex      *blitmtx;
 SDL_threadID    eventthread;
 
 /* win_mouse */
+int             mouse_capture; /* win_mouse */
 SDL_mutex      *mousemutex;
 typedef struct mouseinputdata {
     int deltax, deltay, deltaz;
@@ -254,8 +259,10 @@ static const struct {
     void (*enable)(int enable);
     void (*set_fs)(int fs);
     void (*reload)(void);
-} vid_apis[1] = {    
-    { "SDL_OpenGL", 1, (int (*)(void *)) sdl_initho, sdl_close, NULL, sdl_pause, sdl_enable, sdl_set_fs, sdl_reload },
+    void (*blit)(int x, int y, int w, int h);
+} vid_apis[2] = {    
+    { "SDL_OpenGL", 1, (int (*)(void *)) sdl_initho, sdl_close, NULL, sdl_pause, NULL, sdl_set_fs, NULL, sdl_blit },
+    { "OpenGL_Core", 1, (int (*)(void *)) opengl_init, opengl_close, NULL, opengl_pause, NULL, opengl_set_fs, NULL, opengl_blit },
   };
 
 extern int title_update;
@@ -1201,8 +1208,8 @@ WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpszArg, int nCmdShow)
         return -1;
     }
     mousemutex = SDL_CreateMutex();
-    
-    vid_apis[0].init(NULL);            
+        
+    vid_apis[vid_api].init(NULL);            
     
     /* start machine */    
     pc_reset_hard_init();       
@@ -1326,8 +1333,9 @@ WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpszArg, int nCmdShow)
             plat_mouse_capture(0);
         }
         if (blitreq) {
-            extern void sdl_blit(int x, int y, int w, int h);
-            sdl_blit(params.x, params.y, params.w, params.h);
+            //extern void sdl_blit(int x, int y, int w, int h);
+            //sdl_blit(params.x, params.y, params.w, params.h);
+            vid_apis[vid_api].blit(params.x, params.y, params.w, params.h);  
         }
         if (title_set) {
             extern void ui_window_title_real(void);
@@ -1355,6 +1363,24 @@ WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpszArg, int nCmdShow)
     return (0);
 }
 
+/* Return the VIDAPI number for the given name. */
+int
+plat_vidapi(char *name)
+{	 
+    int i;
+
+    /* Default/System is SDL Hardware. */
+    if (!strcasecmp(name, "default") || !strcasecmp(name, "system") || !strcasecmp(name, "sdl"))
+        return (0);  
+
+    for (i = 0; i < 2; i++) {
+        if (vid_apis[i].name && !strcasecmp(vid_apis[i].name, name))
+            return (i);
+    }
+
+    /* Default value. */
+    return (0);
+}
 
 /* Return the VIDAPI name for the given number. */
 char *
@@ -1365,6 +1391,9 @@ plat_vidapi_name(int api)
     switch (api) {
         case 0:
             name = "sdl_opengl";
+            break;     
+        case 1:
+            name = "opengl_core";
             break;     
         default:
             fatal("Unknown renderer: %i\n", api);
@@ -1432,6 +1461,13 @@ get_vidpause(void)
 }
 
 void
+plat_mouse_capture(int on)
+{   
+    SDL_SetRelativeMouseMode((SDL_bool) on);
+    mouse_capture = on;  
+}
+
+void
 plat_setfullscreen(int on)
 {
  
@@ -1485,7 +1521,8 @@ win_get_string(int id)
     return ((LPARAM) ret);
 }
 
-/* win_joystick.c */
+/* winsr_sdl2_joystick.c */
+/*
 void
 joystick_init(void)
 {
@@ -1498,7 +1535,7 @@ void
 joystick_process(void)
 {
 }
-
+*/
 void /* plat_ */
 startblit(void)
 {

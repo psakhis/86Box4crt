@@ -1,11 +1,28 @@
 #include <SDL.h>
 #include <SDL_messagebox.h>
 
+#include <time.h>
+
+#ifndef timersub
+#define timersub(a, b, result) \
+        do { \
+                (result)->tv_sec = (a)->tv_sec - (b)->tv_sec; \
+                (result)->tv_usec = (a)->tv_usec - (b)->tv_usec; \
+                if ((result)->tv_usec < 0) { \
+                        --(result)->tv_sec; \
+                        (result)->tv_usec += 1000000; \
+                } \
+        } while (0)
+#endif // timersub
+
+#include <sys/time.h>
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <sys/param.h>
+
 /* This #undef is needed because a SDL include header redefines HAVE_STDARG_H. */
 #undef HAVE_STDARG_H
 #define HAVE_STDARG_H
@@ -18,7 +35,7 @@
 #include <86box/version.h>
 #include <86box/winsr_sdl.h>
 
-#include <86box/switchres_wrapper.h> //psakhis
+#include <86box/switchres_wrapper2.h> //psakhis
 
 #define RENDERER_FULL_SCREEN 1
 #define RENDERER_HARDWARE    2
@@ -30,8 +47,8 @@ typedef struct sdl_blit_params {
 extern sdl_blit_params params;
 extern int             blitreq;
 
-SDL_Window         *sdl_win    = NULL;
-SDL_Renderer       *sdl_render = NULL;
+static SDL_Window    *sdl_win    = NULL;
+static SDL_Renderer  *sdl_render = NULL;
 static SDL_Texture *sdl_tex    = NULL;
 int                 sdl_w = SCREEN_RES_X, sdl_h = SCREEN_RES_Y;
 static int          sdl_fs, sdl_flags           = -1;
@@ -40,7 +57,7 @@ static int          cur_wx = 0, cur_wy = 0, cur_ww = 0, cur_wh = 0;
 static volatile int sdl_enabled = 1;
 static SDL_mutex   *sdl_mutex   = NULL;
 
-int                 mouse_capture; /* win_mouse */
+//int                 mouse_capture; /* win_mouse */
 
 int                 title_set         = 0;
 int                 resize_pending    = 0;
@@ -51,12 +68,12 @@ double              mouse_x_error = 0.0, mouse_y_error = 0.0; /* Unused. */
 static uint8_t      interpixels[17842176];
 
 //psakhis
-unsigned char       retSR; 
+static unsigned char  retSR; 
 static int          sr_real_width = 0;     
 static int          sr_real_height = 0;
 static int          sr_last_width = 0;     
 static int          sr_last_height = 0;
-static int          sr_x_scale = 1;
+static double       sr_x_scale = 1.0;
 
 extern void RenderImGui(void);
 static void
@@ -74,6 +91,26 @@ sdl_integer_scale(double *d, double *g)
 }
 
 void sdl_reinit_texture(void);
+
+static void
+switchres_flush()
+{ 
+ pclog("switchres_flush init\n"); 
+ sr_mode swres_result;
+ int sr_mode_flags = SR_MODE_DONT_FLUSH;    
+ retSR = sr_add_mode(304, 240, 59.70, sr_mode_flags, &swres_result); //turrican ii   
+ if (swres_result.width == 304) {
+    retSR = sr_add_mode(320, 240, 59.70, sr_mode_flags, &swres_result); 
+    retSR = sr_add_mode(640, 240, 59.70, sr_mode_flags, &swres_result); //supaplex
+ }   
+ sr_mode_flags = SR_MODE_INTERLACED | SR_MODE_DONT_FLUSH;       
+ retSR = sr_add_mode(720, 480, 59.70, sr_mode_flags, &swres_result);      
+  if (swres_result.width == 720) {    
+    retSR = sr_add_mode(640, 480, 59.70, sr_mode_flags, &swres_result);     
+  }  
+ retSR = sr_flush();
+ pclog("switchres_flush end\n"); 
+}
 
 static void
 sdl_stretch(int *w, int *h, int *x, int *y)
@@ -101,7 +138,7 @@ sdl_stretch(int *w, int *h, int *x, int *y)
             //*h = real_sdl_h;                        
             //*x = 0;            
             //*y = 0;                         
-            *w = sr_real_width * sr_x_scale;
+            *w = floor(0.5 + sr_real_width * sr_x_scale);
             *h = sr_real_height;
             *x = (real_sdl_w - *w) / 2;
             *y = (real_sdl_h - *h) / 2;
@@ -205,17 +242,23 @@ sdl_blit(int x, int y, int w, int h)
         return;
     }
    
-    SDL_LockMutex(sdl_mutex);
-    
+    SDL_LockMutex(sdl_mutex);       
+
     //psakhis 
     sr_mode swres_result;      	           
     if (switchres_switch) {   
-        printf("Mode detected %dx%d@%f (%d)\n",switchres_width,switchres_height,switchres_freq,switchres_interlace);                
-    	if (switchres_interlace)     		
-    	  retSR = sr_switch_to_mode(switchres_width, 480, switchres_freq, switchres_interlace ,&swres_result);    	      	    	 
-    	else 
-    	  retSR = sr_switch_to_mode(switchres_width, 240, switchres_freq, switchres_interlace ,&swres_result);            	
-    	              
+        pclog("Mode detected %dx%d@%f (%d)\n",switchres_width,switchres_height,switchres_freq,switchres_interlace);                
+        struct timeval tval_before, tval_after, tval_result;
+        gettimeofday(&tval_before, NULL);
+        
+        int sr_mode_flags = 0; 
+        int sr_height = 240;
+    	if (switchres_interlace) {    		
+          sr_mode_flags = SR_MODE_INTERLACED;
+    	  sr_height = 480;
+    	}  
+    	retSR = sr_add_mode(switchres_width, sr_height, switchres_freq, sr_mode_flags ,&swres_result);            	
+    	retSR = sr_set_mode(swres_result.id);              
         #ifdef _WIN32
         if (sr_last_width != swres_result.width || sr_last_height != swres_result.height) {                                
            SDL_SetWindowSize(sdl_win, swres_result.width, swres_result.height);                      
@@ -227,8 +270,11 @@ sdl_blit(int x, int y, int w, int h)
         sr_last_height = swres_result.height; 
         sr_x_scale = swres_result.x_scale;               
         switchres_switch = 0; 
-    }    
-            
+        
+        gettimeofday(&tval_after, NULL);
+        timersub(&tval_after, &tval_before, &tval_result);
+        pclog("Mode applied, time elapsed: %ld.%06ld\n", (long int)tval_result.tv_sec, (long int)tval_result.tv_usec);                
+    }                
     //end psakhis
      
     //not used on fullscreen       
@@ -252,16 +298,14 @@ sdl_blit(int x, int y, int w, int h)
 static void
 sdl_destroy_window(void)
 {
-    if (sdl_win != NULL) {
-        if (window_remember) {
-            SDL_GetWindowSize(sdl_win, &window_w, &window_h);
-            if (strncasecmp(SDL_GetCurrentVideoDriver(), "wayland", 7) != 0) {
-                SDL_GetWindowPosition(sdl_win, &window_x, &window_y);
-            }
-        }
+   if (sdl_win) {
+   	SDL_SetWindowFullscreen(sdl_win, 0);
+   	SDL_SetRelativeMouseMode(SDL_FALSE);
+        SDL_ShowCursor(SDL_TRUE);
+        SDL_SetWindowGrab(sdl_win, SDL_FALSE);
         SDL_DestroyWindow(sdl_win);
-        sdl_win = NULL;
-    }
+        sdl_win = NULL;  
+   }
 }
 
 static void
@@ -279,8 +323,8 @@ sdl_close(void)
 {    
     
     if (sdl_mutex != NULL)
-        SDL_LockMutex(sdl_mutex);   
-
+        SDL_LockMutex(sdl_mutex);     
+    
     /* Unregister our renderer! */
     video_setblit(NULL);
 
@@ -291,7 +335,7 @@ sdl_close(void)
         SDL_DestroyMutex(sdl_mutex);
         sdl_mutex = NULL;
     }   
-
+    
     sdl_destroy_texture();             
     sdl_destroy_window();       
     
@@ -354,6 +398,7 @@ sdl_set_fs(int fs)
 {	 
     SDL_LockMutex(sdl_mutex);          
     SDL_SetWindowFullscreen(sdl_win, SDL_WINDOW_FULLSCREEN);  //psakhis: always full  
+    extern void plat_mouse_capture(int fs);
     plat_mouse_capture(fs);
       
     sdl_fs = fs;
@@ -411,11 +456,6 @@ sdl_reload(void)
     }
 }
 
-int
-plat_vidapi(char *api)
-{
-    return 0;
-}
 
 static int
 sdl_init_common(int flags)
@@ -447,6 +487,7 @@ sdl_init_common(int flags)
     //psakhis init switchres
     sr_init(); 
     retSR=sr_init_disp("auto",sdl_win);   
+    switchres_flush();
     sr_real_width = 640;
     sr_real_height = 480; 
     SDL_GL_GetDrawableSize(sdl_win, &sr_last_width, &sr_last_height);  
@@ -454,6 +495,7 @@ sdl_init_common(int flags)
 
     /* Make sure we get a clean exit. */
     atexit(sdl_close);
+    atexit(sr_deinit);
 
     /* Register our renderer! */
     video_setblit(sdl_blit_shim);
@@ -487,6 +529,7 @@ sdl_pause(void)
     return (0);
 }
 
+/*
 void
 plat_mouse_capture(int on)
 {
@@ -495,7 +538,7 @@ plat_mouse_capture(int on)
     mouse_capture = on;
     SDL_UnlockMutex(sdl_mutex);
 }
-
+*/
 
 void
 plat_resize(int w, int h) //not used on fullscreen

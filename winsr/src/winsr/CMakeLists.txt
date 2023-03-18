@@ -18,7 +18,7 @@
 add_library(plat OBJECT winsr.c winsr_dynld.c winsr_cdrom.c)
 # winsr_keyboard.c win_mouse.c
 
-add_library(ui OBJECT winsr_sdl.c )
+add_library(ui OBJECT winsr_sdl.c glad.c winsr_opengl_glslp.c winsr_opengl.c)
  
 if(NOT CPPTHREADS)
     target_sources(plat PRIVATE winsr_thread.c)
@@ -48,12 +48,14 @@ if(NOT MINGW)
 endif()
 
 #if(DINPUT)
-#    target_sources(plat PRIVATE win_joystick.cpp)
+#    target_sources(plat PRIVATE winsr_joystick.cpp)
 #    target_link_libraries(86Box dinput8)
 #else()
-#    target_sources(plat PRIVATE win_joystick_rawinput.c)
+#    target_sources(plat PRIVATE winsr_joystick_rawinput.c)
 #endif()
 
+    target_sources(plat PRIVATE winsr_sdl2_joystick.c)
+ 
 target_link_libraries(86Box advapi32 comctl32 comdlg32 gdi32 shell32 iphlpapi
     dxguid imm32 hid setupapi uxtheme version winmm psapi ws2_32) 
 
