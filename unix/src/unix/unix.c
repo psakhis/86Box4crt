@@ -34,6 +34,7 @@
 #include <86box/device.h>
 #include <86box/gameport.h>
 #include <86box/unix_sdl.h>
+#include <86box/unix_opengl.h> //psakhis
 #include <86box/timer.h>
 #include <86box/nvr.h>
 #include <86box/video.h>
@@ -56,11 +57,15 @@ int             fixed_size_x = 640;
 int             fixed_size_y = 480;
 extern int      title_set;
 extern wchar_t  sdl_win_title[512];
+/* unix_sdl2_joystick.c
 plat_joystick_t plat_joystick_state[MAX_PLAT_JOYSTICKS];
 joystick_t      joystick_state[MAX_JOYSTICKS];
 int             joysticks_present;
+*/
 SDL_mutex      *blitmtx;
 SDL_threadID    eventthread;
+
+int             mouse_capture; //psakhis
 static int      exit_event         = 0;
 static int      fullscreen_pending = 0;
 uint32_t        lang_id = 0x0409, lang_sys = 0x0409; // Multilangual UI variables, for now all set to LCID of en-US
@@ -180,6 +185,23 @@ typedef struct sdl_blit_params {
 
 sdl_blit_params params  = { 0, 0, 0, 0 };
 int             blitreq = 0;
+
+static const struct {
+    const char *name;
+    int         local;
+    int (*init)(void *);
+    void (*close)(void);
+    void (*resize)(int x, int y);
+    int (*pause)(void);
+    void (*enable)(int enable);
+    void (*set_fs)(int fs);
+    void (*reload)(void);
+    void (*blit)(int x, int y, int w, int h);
+} vid_apis[2] = {    
+    { "SDL_OpenGL", 1, (int (*)(void *)) sdl_initho, sdl_close, NULL, sdl_pause, NULL, sdl_set_fs, NULL, sdl_blit },
+    { "OpenGL_Core", 1, (int (*)(void *)) opengl_init, opengl_close, NULL, opengl_pause, NULL, opengl_set_fs, NULL, opengl_blit },
+  };
+
 
 void *
 dynld_module(const char *name, dllimp_t *table)
@@ -1110,7 +1132,9 @@ main(int argc, char **argv)
     
     //psakhis: start on fullscreen
     video_fullscreen = 1; 
-    sdl_initho();
+    //sdl_initho();
+    if (!vid_apis[vid_api].init(NULL))    
+     return -1;   
                 
     /* Fire up the machine. */
     pc_reset_hard_init();
@@ -1240,8 +1264,9 @@ main(int argc, char **argv)
             plat_mouse_capture(0);
         }
         if (blitreq) {
-            extern void sdl_blit(int x, int y, int w, int h);
-            sdl_blit(params.x, params.y, params.w, params.h);
+            //extern void sdl_blit(int x, int y, int w, int h);
+            //sdl_blit(params.x, params.y, params.w, params.h);
+            vid_apis[vid_api].blit(params.x, params.y, params.w, params.h); 
         }
         if (title_set) {
             extern void ui_window_title_real(void);
@@ -1269,10 +1294,53 @@ main(int argc, char **argv)
         f_rl_callback_handler_remove();
     return 0;
 }
+
+/* Return the VIDAPI number for the given name. */
+int
+plat_vidapi(char *name)
+{	 
+    int i;
+
+    /* Default/System is SDL Hardware. */
+    if (!strcasecmp(name, "default") || !strcasecmp(name, "system") || !strcasecmp(name, "sdl"))
+        return (0);  
+
+    for (i = 0; i < 2; i++) {
+        if (vid_apis[i].name && !strcasecmp(vid_apis[i].name, name))
+            return (i);
+    }
+
+    /* Default value. */
+    return (0);
+}
+
+
+/* Return the VIDAPI name for the given number. */
 char *
-plat_vidapi_name(int i)
+plat_vidapi_name(int api)
 {
-    return "default";
+    char *name = "default";
+
+    switch (api) {
+        case 0:
+            name = "sdl_opengl";
+            break;     
+        case 1:
+            name = "opengl_core";
+            break;     
+        default:
+            fatal("Unknown renderer: %i\n", api);
+            break;
+    }
+
+    return (name);
+}
+
+void
+plat_mouse_capture(int on)
+{   
+    SDL_SetRelativeMouseMode((SDL_bool) on);
+    mouse_capture = on;  
 }
 
 void
@@ -1297,6 +1365,7 @@ plat_language_code_r(uint32_t lcid, char *outbuf, int len)
     return;
 }
 
+/* unix_sdl2_joystick.c
 void
 joystick_init(void)
 {
@@ -1309,6 +1378,8 @@ void
 joystick_process(void)
 {
 }
+*/
+
 void
 startblit(void)
 {

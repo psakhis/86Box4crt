@@ -1,6 +1,9 @@
 #include <SDL.h>
 #include <SDL_messagebox.h>
 
+#include <time.h>
+#include <sys/time.h>
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -30,8 +33,8 @@ typedef struct sdl_blit_params {
 extern sdl_blit_params params;
 extern int             blitreq;
 
-SDL_Window         *sdl_win    = NULL;
-SDL_Renderer       *sdl_render = NULL;
+static SDL_Window   *sdl_win    = NULL;
+static SDL_Renderer *sdl_render = NULL;
 static SDL_Texture *sdl_tex    = NULL;
 int                 sdl_w = SCREEN_RES_X, sdl_h = SCREEN_RES_Y;
 static int          sdl_fs, sdl_flags           = -1;
@@ -39,8 +42,6 @@ static int          cur_w, cur_h;
 static int          cur_wx = 0, cur_wy = 0, cur_ww = 0, cur_wh = 0;
 static volatile int sdl_enabled = 1;
 static SDL_mutex   *sdl_mutex   = NULL;
-
-int                 mouse_capture; /* win_mouse */
 
 int                 title_set         = 0;
 int                 resize_pending    = 0;
@@ -51,12 +52,13 @@ double              mouse_x_error = 0.0, mouse_y_error = 0.0; /* Unused. */
 static uint8_t      interpixels[17842176];
 
 //psakhis
-unsigned char       retSR; 
+static unsigned char  retSR; 
 static int          sr_real_width = 0;     
 static int          sr_real_height = 0;
 static int          sr_last_width = 0;     
 static int          sr_last_height = 0;
-static int          sr_x_scale = 1;
+static double       sr_x_scale = 1.0;
+static double       sr_y_scale = 1.0;
 
 extern void RenderImGui(void);
 static void
@@ -74,6 +76,32 @@ sdl_integer_scale(double *d, double *g)
 }
 
 void sdl_reinit_texture(void);
+
+static int
+sdl_display(void)
+{
+   int num_displays;
+   SDL_Rect dbr;
+
+   if((num_displays = SDL_GetNumVideoDisplays()) < 0)
+   {
+    pclog("SDL_GetNumVideoDisplays() failed: %s\n", SDL_GetError());
+    return 0;
+   }	   
+
+   if(SDL_GetDisplayBounds(vid_display, &dbr) < 0)
+   {
+    pclog("SDL_GetDisplayBounds() failed: %s\n", SDL_GetError());
+    return 0;
+   }
+   
+   if (vid_display) {
+     SDL_SetWindowPosition(sdl_win, dbr.x, dbr.y);
+     SDL_SetWindowSize(sdl_win, dbr.w, dbr.h);        		
+   }
+   
+   return 1;	
+}
 
 static void
 sdl_stretch(int *w, int *h, int *x, int *y)
@@ -100,9 +128,9 @@ sdl_stretch(int *w, int *h, int *x, int *y)
             //*w = real_sdl_w;
             //*h = real_sdl_h;                        
             //*x = 0;            
-            //*y = 0;                         
-            *w = sr_real_width * sr_x_scale;
-            *h = sr_real_height;
+            //*y = 0;  
+            *w = floor(0.5 + sr_real_width * sr_x_scale);
+            *h = floor(0.5 + sr_real_height * sr_y_scale);                                     
             *x = (real_sdl_w - *w) / 2;
             *y = (real_sdl_h - *h) / 2;
             break;
@@ -210,7 +238,10 @@ sdl_blit(int x, int y, int w, int h)
     //psakhis 
     sr_mode swres_result;      	           
     if (switchres_switch) {   
-        printf("Mode detected %dx%d@%f (%d)\n",switchres_width,switchres_height,switchres_freq,switchres_interlace);                
+        pclog("Mode detected %dx%d@%f (%d)\n",switchres_width,switchres_height,switchres_freq,switchres_interlace);                
+        struct timeval tval_before, tval_after, tval_result;
+        gettimeofday(&tval_before, NULL);
+        
     	if (switchres_interlace)     		
     	  retSR = sr_switch_to_mode(switchres_width, 480, switchres_freq, switchres_interlace ,&swres_result);    	      	    	 
     	else 
@@ -226,7 +257,12 @@ sdl_blit(int x, int y, int w, int h)
         sr_last_width = swres_result.width;  
         sr_last_height = swres_result.height; 
         sr_x_scale = swres_result.x_scale;               
+        sr_y_scale = swres_result.y_scale;               
         switchres_switch = 0; 
+        
+        gettimeofday(&tval_after, NULL);
+        timersub(&tval_after, &tval_before, &tval_result);
+        pclog("Mode applied, time elapsed: %ld.%06ld\n", (long int)tval_result.tv_sec, (long int)tval_result.tv_usec); 
     }    
             
     //end psakhis
@@ -354,6 +390,7 @@ sdl_set_fs(int fs)
 {	 
     SDL_LockMutex(sdl_mutex);          
     SDL_SetWindowFullscreen(sdl_win, SDL_WINDOW_FULLSCREEN);  //psakhis: always full  
+    extern void plat_mouse_capture(int fs);
     plat_mouse_capture(fs);
       
     sdl_fs = fs;
@@ -411,12 +448,6 @@ sdl_reload(void)
     }
 }
 
-int
-plat_vidapi(char *api)
-{
-    return 0;
-}
-
 static int
 sdl_init_common(int flags)
 {   
@@ -441,12 +472,24 @@ sdl_init_common(int flags)
 
     sdl_mutex = SDL_CreateMutex();
     sdl_win   = SDL_CreateWindow("86Box", strncasecmp(SDL_GetCurrentVideoDriver(), "wayland", 7) != 0 && window_remember ? window_x : SDL_WINDOWPOS_CENTERED, strncasecmp(SDL_GetCurrentVideoDriver(), "wayland", 7) != 0 && window_remember ? window_y : SDL_WINDOWPOS_CENTERED, scrnsz_x, scrnsz_y, SDL_WINDOW_OPENGL | (vid_resize & 1 ? SDL_WINDOW_RESIZABLE : 0));    
-        
+    
+    if (!sdl_display()) {
+    	pclog("Failed to index display %d.\n", vid_display);
+    	sdl_close();
+    	return (0);
+    }    
+    
     sdl_set_fs(video_fullscreen);   
 
     //psakhis init switchres
     sr_init(); 
-    retSR=sr_init_disp("auto",sdl_win);   
+    char sr_monitor[256];
+    sprintf(sr_monitor, "%d", vid_display);        
+    if (vid_display)
+     retSR=sr_init_disp(sr_monitor, sdl_win);
+    else
+     retSR=sr_init_disp("auto", sdl_win);     
+    //switchres_flush(); only win32
     sr_real_width = 640;
     sr_real_height = 480; 
     SDL_GL_GetDrawableSize(sdl_win, &sr_last_width, &sr_last_height);  
@@ -454,7 +497,8 @@ sdl_init_common(int flags)
 
     /* Make sure we get a clean exit. */
     atexit(sdl_close);
-
+    atexit(sr_deinit);
+    
     /* Register our renderer! */
     video_setblit(sdl_blit_shim);
 
@@ -486,16 +530,6 @@ sdl_pause(void)
 {
     return (0);
 }
-
-void
-plat_mouse_capture(int on)
-{
-    SDL_LockMutex(sdl_mutex);
-    SDL_SetRelativeMouseMode((SDL_bool) on);
-    mouse_capture = on;
-    SDL_UnlockMutex(sdl_mutex);
-}
-
 
 void
 plat_resize(int w, int h) //not used on fullscreen
