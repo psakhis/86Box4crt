@@ -74,6 +74,7 @@ static int          sr_real_height = 0;
 static int          sr_last_width = 0;     
 static int          sr_last_height = 0;
 static double       sr_x_scale = 1.0;
+static double       sr_y_scale = 1.0;
 
 extern void RenderImGui(void);
 static void
@@ -91,6 +92,33 @@ sdl_integer_scale(double *d, double *g)
 }
 
 void sdl_reinit_texture(void);
+
+
+static int
+sdl_display()
+{
+   int num_displays;
+   SDL_Rect dbr;
+
+   if((num_displays = SDL_GetNumVideoDisplays()) < 0)
+   {
+    pclog("SDL_GetNumVideoDisplays() failed: %s\n", SDL_GetError());
+    return 0;
+   }	   
+
+   if(SDL_GetDisplayBounds(vid_display, &dbr) < 0)
+   {
+    pclog("SDL_GetDisplayBounds() failed: %s\n", SDL_GetError());
+    return 0;
+   }
+   
+   if (vid_display) {
+     SDL_SetWindowPosition(sdl_win, dbr.x, dbr.y);
+     SDL_SetWindowSize(sdl_win, dbr.w, dbr.h);        		
+   }
+   
+   return 1;	
+}
 
 static void
 switchres_flush()
@@ -139,7 +167,7 @@ sdl_stretch(int *w, int *h, int *x, int *y)
             //*x = 0;            
             //*y = 0;                         
             *w = floor(0.5 + sr_real_width * sr_x_scale);
-            *h = sr_real_height;
+            *h = floor(0.5 + sr_real_height * sr_y_scale);  
             *x = (real_sdl_w - *w) / 2;
             *y = (real_sdl_h - *h) / 2;
             break;
@@ -268,7 +296,8 @@ sdl_blit(int x, int y, int w, int h)
         sr_real_height = switchres_height;   
         sr_last_width = swres_result.width;  
         sr_last_height = swres_result.height; 
-        sr_x_scale = swres_result.x_scale;               
+        sr_x_scale = swres_result.x_scale;       
+        sr_y_scale = swres_result.y_scale;        
         switchres_switch = 0; 
         
         gettimeofday(&tval_after, NULL);
@@ -481,12 +510,23 @@ sdl_init_common(int flags)
 
     sdl_mutex = SDL_CreateMutex();
     sdl_win   = SDL_CreateWindow("86Box", strncasecmp(SDL_GetCurrentVideoDriver(), "wayland", 7) != 0 && window_remember ? window_x : SDL_WINDOWPOS_CENTERED, strncasecmp(SDL_GetCurrentVideoDriver(), "wayland", 7) != 0 && window_remember ? window_y : SDL_WINDOWPOS_CENTERED, scrnsz_x, scrnsz_y, SDL_WINDOW_OPENGL | (vid_resize & 1 ? SDL_WINDOW_RESIZABLE : 0));    
+    
+    if (!sdl_display()) {
+    	pclog("Failed to index display %d.\n", vid_display);
+    	sdl_close();
+    	return (0);
+    }
         
     sdl_set_fs(video_fullscreen);   
 
     //psakhis init switchres
     sr_init(); 
-    retSR=sr_init_disp("auto",sdl_win);   
+    char sr_monitor[256];
+    sprintf(sr_monitor, "%d", vid_display);        
+    if (vid_display)
+     retSR=sr_init_disp(sr_monitor, sdl_win);
+    else
+     retSR=sr_init_disp("auto", sdl_win);     
     switchres_flush();
     sr_real_width = 640;
     sr_real_height = 480; 

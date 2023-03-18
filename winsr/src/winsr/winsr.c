@@ -1208,8 +1208,9 @@ WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpszArg, int nCmdShow)
         return -1;
     }
     mousemutex = SDL_CreateMutex();
-        
-    vid_apis[vid_api].init(NULL);            
+    
+    if (!vid_apis[vid_api].init(NULL))    
+     return -1;            
     
     /* start machine */    
     pc_reset_hard_init();       
